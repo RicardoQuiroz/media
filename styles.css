@@ -288,6 +288,12 @@ input, textarea {
     transform: scale(1.08) rotate(-3deg);
 }
 
+.header__logo-img {
+    width: 28px;
+    height: 28px;
+    object-fit: contain;
+}
+
 .header__title {
     font-size: var(--font-size-xl);
     font-weight: 800;
@@ -1369,7 +1375,8 @@ input, textarea {
         height: 36px;
     }
 
-    .header__brand .header__logo svg {
+    .header__brand .header__logo svg,
+    .header__brand .header__logo-img {
         width: 20px;
         height: 20px;
     }
