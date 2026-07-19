@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>miLMS — Prueba de la Fase 1</title>
+  <link rel="stylesheet" href="https://ricardoquiroz.github.io/iagen/investigacion.css">
+  <!--
+    PÁGINA DE PRUEBA DEL FLUJO COMPLETO (Fase 1)
+    Registro → login → jugar actividad → recibir código → clave compuesta.
+    No es el frontend final: es el banco de pruebas del servidor.
+  -->
+  <style>
+    .tarjeta { background: #fff; border: 1px solid #C9A84C; border-radius: 10px;
+               padding: 16px 20px; margin: 14px 0; }
+    .tarjeta h3 { color: #0F3460; margin-top: 0; }
+    .tarjeta input { padding: 7px 10px; margin: 4px 6px 4px 0; border: 1px solid #0F3460;
+                     border-radius: 6px; min-width: 200px; }
+    .tarjeta button { padding: 8px 18px; margin: 4px 4px 4px 0; cursor: pointer;
+                      background: #0F3460; color: #fff; border: none; border-radius: 6px; }
+    .tarjeta button:disabled { background: #999; cursor: default; }
+    .aviso { padding: 8px 12px; border-radius: 6px; margin: 8px 0; font-size: .95em; }
+    .aviso.ok    { background: #E8F5E9; color: #2E7D32; }
+    .aviso.error { background: #fdecef; color: #E94560; }
+    .aviso.info  { background: #E8F4FD; color: #1565C0; }
+    .codigo-grande { font-size: 1.6em; letter-spacing: 3px; color: #6A1B9A;
+                     font-weight: bold; }
+    #marco { width: 100%; height: 460px; border: 2px dashed #1565C0;
+             border-radius: 10px; background: #fff; }
+    .fila-act { display: flex; align-items: center; gap: 10px; margin: 6px 0; }
+    .oculto { display: none; }
+  </style>
+</head>
+<body>
+<div class="curso-wrapper">
+
+  <h1 class="curso-h1">miLMS — Banco de pruebas (Fase 1)</h1>
+  <hr class="divider">
+  <p class="curso-p">Esta página prueba el recorrido completo: iniciar sesión,
+    jugar la actividad, recibir el código secreto y validar la clave compuesta.</p>
+
+  <!-- PASO 0: conexión -->
+  <div class="tarjeta" id="t-conexion">
+    <h3>0 · Conectar con tu Supabase</h3>
+    <p class="curso-p">Copia estos dos datos desde tu proyecto
+      (Settings → API): la <strong>Project URL</strong> y la clave
+      <strong>anon public</strong>.</p>
+    <input id="sb-url" placeholder="https://xxxx.supabase.co">
+    <input id="sb-key" placeholder="clave anon (empieza con eyJ… o sb_publishable_…)">
+    <button onclick="conectar()">Conectar</button>
+    <div id="msg-conexion"></div>
+  </div>
+
+  <!-- PASO 1: registro / login -->
+  <div class="tarjeta oculto" id="t-auth">
+    <h3>1 · Registrarse o iniciar sesión</h3>
+    <div>
+      <input id="reg-nombres" placeholder="Nombres">
+      <input id="reg-apellidos" placeholder="Apellidos">
+      <input id="reg-email" placeholder="Email">
+      <input id="reg-pass" type="password" placeholder="Contraseña (mín. 6)">
+      <button onclick="registrar()">Registrarme</button>
+      <button onclick="entrar()">Ya tengo cuenta: entrar</button>
+    </div>
+    <div id="msg-auth"></div>
+  </div>
+
+  <!-- PASO 2: actividades -->
+  <div class="tarjeta oculto" id="t-acts">
+    <h3>2 · Actividades del curso demo</h3>
+    <div id="lista-acts"></div>
+    <iframe id="marco" class="oculto"></iframe>
+    <div id="msg-juego"></div>
+  </div>
+
+  <!-- PASO 3: clave compuesta -->
+  <div class="tarjeta oculto" id="t-clave">
+    <h3>3 · Clave compuesta del subtema</h3>
+    <p class="curso-p">Une los códigos de tus actividades <strong>en orden</strong>
+      (sin espacios) y valídala para desbloquear la evaluación.</p>
+    <input id="clave" placeholder="Ej: 4831907551234">
+    <button onclick="validarClave()">Validar clave</button>
+    <div id="msg-clave"></div>
+  </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+  let sb = null;            // cliente de Supabase
+  let actividades = [];     // actividades del curso demo
+  let attemptId = null;     // intento abierto actualmente
+  let subtemaId = null;
+
+  function aviso(donde, texto, clase) {
+    document.getElementById(donde).innerHTML =
+      '<div class="aviso ' + clase + '">' + texto + '</div>';
+  }
+  const ver = (id) => document.getElementById(id).classList.remove('oculto');
+
+  // ---------- 0. Conexión ----------
+  function conectar() {
+    const url = document.getElementById('sb-url').value.trim();
+    const key = document.getElementById('sb-key').value.trim();
+    if (!url || !key) return aviso('msg-conexion', 'Completa los dos campos', 'error');
+    sb = supabase.createClient(url, key);
+    localStorage.setItem('milms_url', url);
+    localStorage.setItem('milms_key', key);
+    aviso('msg-conexion', 'Conectado ✔', 'ok');
+    ver('t-auth');
+  }
+  // recordar la conexión anterior
+  window.addEventListener('load', () => {
+    const u = localStorage.getItem('milms_url'), k = localStorage.getItem('milms_key');
+    if (u && k) {
+      document.getElementById('sb-url').value = u;
+      document.getElementById('sb-key').value = k;
+    }
+  });
+
+  // ---------- 1. Registro / login ----------
+  async function registrar() {
+    const { error } = await sb.auth.signUp({
+      email: document.getElementById('reg-email').value.trim(),
+      password: document.getElementById('reg-pass').value,
+      options: { data: {   // estos datos van al perfil automáticamente
+        nombres: document.getElementById('reg-nombres').value.trim(),
+        apellidos: document.getElementById('reg-apellidos').value.trim()
+      } }
+    });
+    if (error) return aviso('msg-auth', 'Error: ' + error.message, 'error');
+    aviso('msg-auth',
+      'Cuenta creada ✔. Si Supabase pide confirmar el email, revisa tu correo ' +
+      'y luego pulsa "Ya tengo cuenta: entrar".', 'ok');
+  }
+
+  async function entrar() {
+    const { error } = await sb.auth.signInWithPassword({
+      email: document.getElementById('reg-email').value.trim(),
+      password: document.getElementById('reg-pass').value
+    });
+    if (error) return aviso('msg-auth', 'Error: ' + error.message, 'error');
+    aviso('msg-auth', 'Sesión iniciada ✔', 'ok');
+    await cargarActividades();
+  }
+
+  // ---------- 2. Actividades ----------
+  async function cargarActividades() {
+    const { data, error } = await sb.from('actividades')
+      .select('id, titulo, url, orden, subtema_id').order('orden');
+    if (error) return aviso('msg-juego', 'Error: ' + error.message, 'error');
+    actividades = data;
+    subtemaId = data[0]?.subtema_id ?? null;
+    const lista = document.getElementById('lista-acts');
+    lista.innerHTML = '';
+    for (const a of data) {
+      const fila = document.createElement('div');
+      fila.className = 'fila-act';
+      fila.innerHTML = '<button onclick="abrirActividad(' + a.id + ')">Jugar</button>' +
+        '<span>' + a.orden + '. ' + a.titulo + '</span>' +
+        '<span id="cod-' + a.id + '" class="codigo-grande"></span>';
+      lista.appendChild(fila);
+    }
+    ver('t-acts'); ver('t-clave');
+  }
+
+  async function abrirActividad(id) {
+    const act = actividades.find(a => a.id === id);
+    aviso('msg-juego', 'Abriendo intento…', 'info');
+
+    // 1) avisar al servidor que empieza un intento
+    const { data, error } = await sb.functions.invoke('start-attempt',
+      { body: { actividad_id: id } });
+    if (error || data.error) {
+      return aviso('msg-juego', 'Error: ' + (data?.error || error.message), 'error');
+    }
+    attemptId = data.attempt_id;
+    window.actividadActual = id;
+
+    // 2) abrir el juego en el iframe y enviarle su configuración
+    const marco = document.getElementById('marco');
+    marco.classList.remove('oculto');
+    marco.src = act.url;
+    marco.onload = async () => {
+      const { data: fila } = await sb.from('actividades')
+        .select('config').eq('id', id).single();
+      marco.contentWindow.postMessage({ tipo: 'init', config: fila?.config ?? {} }, '*');
+    };
+    aviso('msg-juego', 'Intento ' + data.intento + ' abierto. ¡A jugar!', 'info');
+  }
+
+  // 3) el juego avisa que terminó → pedir el código al servidor
+  window.addEventListener('message', async (event) => {
+    const m = event.data;
+    if (!m || m.tipo !== 'resultado' || !attemptId) return;
+
+    aviso('msg-juego', 'Verificando resultado…', 'info');
+    const { data, error } = await sb.functions.invoke('issue-token', {
+      body: {
+        attempt_id: attemptId, exito: m.exito, puntaje: m.puntaje,
+        tiempo_seg: m.tiempoSeg, errores: m.metricas?.errores, metricas: m.metricas
+      }
+    });
+    attemptId = null;
+    if (error || data.error) {
+      return aviso('msg-juego', 'Error: ' + (data?.error || error.message), 'error');
+    }
+    if (data.codigo) {
+      document.getElementById('cod-' + window.actividadActual).textContent = data.codigo;
+      aviso('msg-juego',
+        '🎉 Tu código: <span class="codigo-grande">' + data.codigo + '</span> ' +
+        '(vence: ' + new Date(data.expira_en).toLocaleString() + '). Anótalo.', 'ok');
+    } else {
+      aviso('msg-juego', 'No ganaste esta vez: sin código. Vuelve a intentar.', 'error');
+    }
+    document.getElementById('marco').classList.add('oculto');
+  });
+
+  // ---------- 3. Clave compuesta ----------
+  async function validarClave() {
+    const clave = document.getElementById('clave').value.trim();
+    const { data, error } = await sb.functions.invoke('compose-key',
+      { body: { subtema_id: subtemaId, clave } });
+    if (error || data.error) {
+      return aviso('msg-clave', 'Error: ' + (data?.error || error.message), 'error');
+    }
+    if (data.valido) {
+      aviso('msg-clave',
+        '✅ ¡Clave correcta! Evaluación del subtema desbloqueada ' +
+        '(los códigos usados ya no sirven de nuevo).', 'ok');
+    } else {
+      aviso('msg-clave', '❌ ' + data.mensaje, 'error');
+    }
+  }
+</script>
+<script src="https://ricardoquiroz.github.io/iagen/investigacion.js"></script>
+</body>
+</html>

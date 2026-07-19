@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Actividad demo — Reto de cálculo</title>
+  <!--
+    ACTIVIDAD LÚDICA DE EJEMPLO
+    Muestra el patrón que seguirán todos tus juegos:
+      1. NO sabe nada de Supabase ni de sesiones (juego "tonto").
+      2. Recibe su configuración con el mensaje 'init'.
+      3. Al ganar, envía UNA línea: postMessage con tipo 'resultado'.
+  -->
+  <style>
+    body { font-family: system-ui, sans-serif; background: #E8F4FD; margin: 0;
+           display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+    .caja { background: #fff; border: 2px solid #1565C0; border-radius: 12px;
+            padding: 24px 32px; max-width: 420px; text-align: center; }
+    h2 { color: #0F3460; margin-top: 0; }
+    .pregunta { font-size: 2em; color: #16213E; margin: 16px 0; }
+    input { font-size: 1.4em; width: 120px; text-align: center; padding: 6px;
+            border: 2px solid #C9A84C; border-radius: 8px; }
+    button { font-size: 1.1em; margin-top: 14px; padding: 8px 24px; cursor: pointer;
+             background: #0F3460; color: #fff; border: none; border-radius: 8px; }
+    .info { color: #6A1B9A; font-size: .9em; }
+    .ok { color: #2E7D32; font-weight: bold; }
+    .mal { color: #E94560; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <div class="caja">
+    <h2>🧮 Reto de cálculo</h2>
+    <p class="info">Responde bien 3 operaciones para ganar tu código.</p>
+    <div class="pregunta" id="pregunta">Esperando configuración…</div>
+    <input type="number" id="respuesta" autocomplete="off">
+    <br>
+    <button id="btn">Responder</button>
+    <p id="estado"></p>
+  </div>
+
+  <script>
+    // ---------- Estado del juego ----------
+    let config = { dificultad: 'facil' };   // llega con el mensaje 'init'
+    let correctas = 0, errores = 0, a = 0, b = 0;
+    const META = 3;
+    const inicio = Date.now();
+
+    // ---------- 1. Recibir configuración del LMS ----------
+    window.addEventListener('message', (event) => {
+      if (event.data && event.data.tipo === 'init') {
+        config = Object.assign(config, event.data.config || {});
+        nuevaPregunta();
+      }
+    });
+
+    // Si el LMS no envía init en 2 segundos (p. ej. prueba suelta), empezar igual
+    setTimeout(() => { if (a === 0) nuevaPregunta(); }, 2000);
+
+    // ---------- Lógica del mini-juego ----------
+    function nuevaPregunta() {
+      const tope = config.dificultad === 'facil' ? 10 : 99;
+      a = 1 + Math.floor(Math.random() * tope);
+      b = 1 + Math.floor(Math.random() * tope);
+      document.getElementById('pregunta').textContent = a + ' + ' + b + ' = ?';
+      document.getElementById('respuesta').value = '';
+      document.getElementById('respuesta').focus();
+    }
+
+    document.getElementById('btn').addEventListener('click', responder);
+    document.getElementById('respuesta').addEventListener('keydown',
+      (e) => { if (e.key === 'Enter') responder(); });
+
+    function responder() {
+      const r = Number(document.getElementById('respuesta').value);
+      const estado = document.getElementById('estado');
+      if (r === a + b) {
+        correctas++;
+        estado.innerHTML = '<span class="ok">✔ Correcto (' + correctas + '/' + META + ')</span>';
+        if (correctas >= META) return ganar();
+      } else {
+        errores++;
+        estado.innerHTML = '<span class="mal">✘ Intenta de nuevo</span>';
+      }
+      nuevaPregunta();
+    }
+
+    // ---------- 2. Reportar el resultado al LMS ----------
+    function ganar() {
+      document.getElementById('pregunta').textContent = '🎉 ¡Ganaste!';
+      document.getElementById('estado').innerHTML =
+        '<span class="ok">Pidiendo tu código al LMS…</span>';
+
+      const tiempoSeg = Math.round((Date.now() - inicio) / 1000);
+      const puntaje = Math.max(0, 100 - errores * 10);
+
+      // La única línea que conecta el juego con el LMS.
+      // Nota: en producción reemplaza '*' por el origen exacto de tu LMS,
+      // p. ej. 'https://tuusuario.github.io'
+      window.parent.postMessage({
+        tipo: 'resultado',
+        exito: true,
+        puntaje: puntaje,
+        tiempoSeg: tiempoSeg,
+        // métricas propias de ESTE juego (estructura libre, como tu Sheet):
+        metricas: { correctas: correctas, errores: errores, dificultad: config.dificultad }
+      }, '*');
+    }
+  </script>
+</body>
+</html>
