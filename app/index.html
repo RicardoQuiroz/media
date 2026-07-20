@@ -227,6 +227,79 @@
       margin: 4px 0;
       cursor: pointer;
     }
+
+    #btn-tutor {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      z-index: 40;
+      border-radius: 50px;
+      padding: 12px 20px;
+      font-size: 1.05em;
+      box-shadow: 0 4px 14px rgba(15, 52, 96, .4);
+    }
+
+    #panel-tutor {
+      position: fixed;
+      right: 18px;
+      bottom: 74px;
+      z-index: 45;
+      width: min(360px, 92vw);
+      background: #fff;
+      border: 2px solid #0F3460;
+      border-radius: 12px;
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #panel-tutor .cabecera {
+      background: #0F3460;
+      color: #fff;
+      padding: 8px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    #chat-mensajes {
+      height: 300px;
+      overflow-y: auto;
+      padding: 10px;
+      background: #f7f9fc;
+    }
+
+    .burbuja {
+      max-width: 85%;
+      padding: 8px 12px;
+      border-radius: 12px;
+      margin: 6px 0;
+      font-size: .95em;
+      white-space: pre-wrap;
+    }
+
+    .burbuja.yo {
+      background: #E8F4FD;
+      color: #0F3460;
+      margin-left: auto;
+    }
+
+    .burbuja.ia {
+      background: #EDE7F6;
+      color: #16213E;
+    }
+
+    #chat-entrada {
+      display: flex;
+      gap: 6px;
+      padding: 8px;
+      border-top: 1px solid #ddd;
+    }
+
+    #chat-entrada input {
+      flex: 1;
+      min-width: 0;
+    }
   </style>
 </head>
 
@@ -302,6 +375,21 @@
       </div>
       <div id="cuerpo-eval"></div>
       <div id="msg-eval"></div>
+    </div>
+  </div>
+
+  <!-- Tutor IA (botón flotante + panel de chat) -->
+  <button id="btn-tutor" class="oculto" onclick="alternarTutor()">💬 Profe IA</button>
+  <div id="panel-tutor">
+    <div class="cabecera">
+      <strong>💬 Profe IA — tu tutor</strong>
+      <button class="secundario" onclick="alternarTutor()">✕</button>
+    </div>
+    <div id="chat-mensajes"></div>
+    <div id="chat-entrada">
+      <input id="chat-texto" placeholder="Pregúntale algo…"
+        onkeydown="if(event.key==='Enter')enviarAlTutor()">
+      <button onclick="enviarAlTutor()">Enviar</button>
     </div>
   </div>
 
@@ -393,6 +481,7 @@
       $('barra-usuario').classList.remove('oculto');
       $('vista-auth').classList.add('oculto');
       $('vista-curso').classList.remove('oculto');
+      $('btn-tutor').classList.remove('oculto');
       await cargarTodo();
     }
 
@@ -634,6 +723,8 @@
             ? 'Te quedan ' + data.intentos_restantes + ' intento(s).'
             : 'Sin intentos restantes: repasa las actividades.'), 'error');
       }
+      // Actualizar el perfil IA en segundo plano (no bloquea al estudiante)
+      sb.functions.invoke('update-profile', { body: {} }).catch(() => {});
       await recargarAvance();
     }
 
@@ -714,6 +805,49 @@
       } else {
         aviso('msg-clave-' + subtemaId, '❌ ' + data.mensaje, 'error');
       }
+    }
+
+    // ---------- Tutor IA ----------
+    let chatHistorial = [];   // últimos turnos, para que el tutor recuerde
+
+    function alternarTutor() {
+      const p = $('panel-tutor');
+      const abierto = p.style.display === 'flex';
+      p.style.display = abierto ? 'none' : 'flex';
+      if (!abierto && chatHistorial.length === 0) {
+        agregarBurbuja('ia', '¡Hola! Soy tu Profe IA 🤖. Conozco tu avance en el ' +
+          'curso y puedo ayudarte a repasar o entender en qué mejorar. ' +
+          'Eso sí: no doy respuestas de evaluaciones ni códigos 😉');
+      }
+      if (!abierto) $('chat-texto').focus();
+    }
+
+    function agregarBurbuja(quien, texto) {
+      const d = document.createElement('div');
+      d.className = 'burbuja ' + (quien === 'yo' ? 'yo' : 'ia');
+      d.textContent = texto;
+      $('chat-mensajes').appendChild(d);
+      $('chat-mensajes').scrollTop = $('chat-mensajes').scrollHeight;
+    }
+
+    async function enviarAlTutor() {
+      const texto = v('chat-texto');
+      if (!texto) return;
+      $('chat-texto').value = '';
+      agregarBurbuja('yo', texto);
+      agregarBurbuja('ia', '…');
+      const espera = $('chat-mensajes').lastChild;
+
+      const { data, error } = await sb.functions.invoke('tutor-chat',
+        { body: { mensaje: texto, historial: chatHistorial } });
+      if (error || data.error) {
+        espera.textContent = '⚠️ ' + (data?.error || error.message);
+        return;
+      }
+      espera.textContent = data.respuesta;
+      chatHistorial.push({ rol: 'user', texto });
+      chatHistorial.push({ rol: 'model', texto: data.respuesta });
+      chatHistorial = chatHistorial.slice(-10);
     }
 
     async function recargarAvance() {
