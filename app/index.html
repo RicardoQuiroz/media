@@ -1,1 +1,563 @@
+<!DOCTYPE html>
+<html lang="es">
 
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>miLMS — Portal del estudiante</title>
+  <link rel="stylesheet" href="https://ricardoquiroz.github.io/iagen/investigacion.css">
+  <!--
+    miLMS — FASE 2: Portal del estudiante
+    Registro con perfil completo, login, árbol del curso con candados,
+    juego de actividades en iframe y clave compuesta por subtema.
+
+    ⚙️ ANTES DE SUBIR: edita las DOS líneas de configuración al inicio
+    del <script> (URL y clave anon de tu proyecto Supabase).
+  -->
+  <style>
+    .barra {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .barra .quien {
+      color: #0F3460;
+      font-weight: bold;
+    }
+
+    .tarjeta {
+      background: #fff;
+      border: 1px solid #C9A84C;
+      border-radius: 10px;
+      padding: 16px 20px;
+      margin: 14px 0;
+    }
+
+    .tarjeta h3 {
+      color: #0F3460;
+      margin-top: 0;
+    }
+
+    input,
+    select {
+      padding: 7px 10px;
+      margin: 4px 6px 4px 0;
+      border: 1px solid #0F3460;
+      border-radius: 6px;
+      min-width: 180px;
+      font-size: 1em;
+    }
+
+    button {
+      padding: 8px 18px;
+      margin: 4px 4px 4px 0;
+      cursor: pointer;
+      background: #0F3460;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 1em;
+    }
+
+    button.secundario {
+      background: #fff;
+      color: #0F3460;
+      border: 1px solid #0F3460;
+    }
+
+    button:disabled {
+      background: #aaa;
+      cursor: default;
+    }
+
+    .aviso {
+      padding: 8px 12px;
+      border-radius: 6px;
+      margin: 8px 0;
+    }
+
+    .aviso.ok {
+      background: #E8F5E9;
+      color: #2E7D32;
+    }
+
+    .aviso.error {
+      background: #fdecef;
+      color: #E94560;
+    }
+
+    .aviso.info {
+      background: #E8F4FD;
+      color: #1565C0;
+    }
+
+    .nivel {
+      border-left: 6px solid #1565C0;
+      background: #E8F4FD;
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin: 16px 0;
+    }
+
+    .nivel.bloqueado {
+      border-left-color: #999;
+      background: #f2f2f2;
+      opacity: .75;
+    }
+
+    .nivel h3 {
+      color: #1565C0;
+      margin: 4px 0 8px;
+    }
+
+    .subtema {
+      background: #fff;
+      border: 1px solid #1565C0;
+      border-radius: 8px;
+      padding: 10px 14px;
+      margin: 10px 0;
+    }
+
+    .subtema h4 {
+      color: #0F3460;
+      margin: 2px 0 8px;
+    }
+
+    .fila-act {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 6px 0;
+      flex-wrap: wrap;
+    }
+
+    .estado-act {
+      min-width: 26px;
+      text-align: center;
+      font-size: 1.2em;
+    }
+
+    .cod {
+      font-family: monospace;
+      font-size: 1.15em;
+      letter-spacing: 2px;
+      color: #6A1B9A;
+      font-weight: bold;
+    }
+
+    .vence {
+      color: #888;
+      font-size: .85em;
+    }
+
+    .zona-clave {
+      border-top: 1px dashed #C9A84C;
+      margin-top: 10px;
+      padding-top: 10px;
+    }
+
+    #zona-juego {
+      position: fixed;
+      inset: 0;
+      background: rgba(22, 33, 62, .85);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 50;
+      padding: 20px;
+    }
+
+    #zona-juego .caja-juego {
+      background: #fff;
+      border-radius: 12px;
+      padding: 14px;
+      width: min(760px, 96vw);
+    }
+
+    #marco {
+      width: 100%;
+      height: min(520px, 70vh);
+      border: none;
+      border-radius: 8px;
+      background: #E8F4FD;
+    }
+
+    .oculto {
+      display: none !important;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="curso-wrapper">
+
+    <div class="barra">
+      <h1 class="curso-h1">📚 miLMS</h1>
+      <div id="barra-usuario" class="oculto">
+        <span class="quien" id="quien"></span>
+        <button class="secundario" onclick="salir()">Salir</button>
+      </div>
+    </div>
+    <hr class="divider">
+    <div id="msg-global"></div>
+
+    <!-- ================= VISTA: ACCESO ================= -->
+    <div id="vista-auth">
+
+      <div class="tarjeta">
+        <h3>Iniciar sesión</h3>
+        <input id="lg-email" type="email" placeholder="Email">
+        <input id="lg-pass" type="password" placeholder="Contraseña">
+        <button onclick="entrar()">Entrar</button>
+        <div id="msg-login"></div>
+      </div>
+
+      <div class="tarjeta">
+        <h3>¿Primera vez? Regístrate</h3>
+        <p class="curso-p">Todos los campos son parte de tu perfil de estudiante.</p>
+        <input id="rg-nombres" placeholder="Nombres">
+        <input id="rg-apellidos" placeholder="Apellidos">
+        <input id="rg-email" type="email" placeholder="Email">
+        <input id="rg-pass" type="password" placeholder="Contraseña (mín. 6)">
+        <br>
+        <input id="rg-ciudad" placeholder="Ciudad">
+        <input id="rg-pais" placeholder="País">
+        <input id="rg-ocupacion" placeholder="Ocupación">
+        <input id="rg-edad" type="number" placeholder="Edad" min="5" max="120">
+        <input id="rg-telefono" placeholder="Teléfono">
+        <br>
+        <button onclick="registrar()">Crear mi cuenta</button>
+        <div id="msg-registro"></div>
+      </div>
+
+    </div>
+
+    <!-- ================= VISTA: CURSO ================= -->
+    <div id="vista-curso" class="oculto">
+      <div id="contenido-curso"></div>
+    </div>
+
+  </div>
+
+  <!-- Capa del juego (se abre encima de todo) -->
+  <div id="zona-juego">
+    <div class="caja-juego">
+      <div class="barra">
+        <strong id="titulo-juego" style="color:#0F3460"></strong>
+        <button class="secundario" onclick="cerrarJuego()">✕ Cerrar</button>
+      </div>
+      <iframe id="marco"></iframe>
+      <div id="msg-juego"></div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+    // ══════════════════════════════════════════════════════
+    //  ⚙️ CONFIGURACIÓN — edita SOLO estas dos líneas
+    // ══════════════════════════════════════════════════════
+    const SUPABASE_URL = 'https://iyhezjbcwqsonzorokzx.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_EvuPiF0KQ11XA7gEq0D40A_fOGTKhJi';
+    // ══════════════════════════════════════════════════════
+
+    let sb = null;
+    let usuario = null;                    // sesión actual
+    let arbol = [];                        // cursos → niveles → subtemas → actividades
+    let misTokens = [];                    // tokens propios (RLS: solo los míos)
+    let miProgreso = [];                   // avance propio
+    let attemptId = null, actividadActual = null;
+
+    function aviso(id, texto, clase) {
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = texto
+        ? '<div class="aviso ' + clase + '">' + texto + '</div>' : '';
+    }
+    const $ = (id) => document.getElementById(id);
+    const v = (id) => $(id).value.trim();
+
+    // ---------- Arranque ----------
+    window.addEventListener('load', async () => {
+      if (SUPABASE_URL.includes('TU-PROYECTO')) {
+        return aviso('msg-global',
+          '⚙️ Falta configurar: abre este archivo y completa la URL y la clave ' +
+          'anon de tu proyecto Supabase (dos líneas al inicio del script).', 'error');
+      }
+      sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+      // ¿Ya había una sesión guardada (o venimos del correo de confirmación)?
+      const { data: { session } } = await sb.auth.getSession();
+      if (session) await iniciarApp(session);
+
+      sb.auth.onAuthStateChange(async (evento, sesion) => {
+        if (evento === 'SIGNED_IN' && sesion && !usuario) await iniciarApp(sesion);
+        if (evento === 'SIGNED_OUT') location.reload();
+      });
+    });
+
+    // ---------- Registro / sesión ----------
+    async function registrar() {
+      if (!v('rg-email') || !v('rg-pass') || !v('rg-nombres')) {
+        return aviso('msg-registro', 'Completa al menos nombres, email y contraseña', 'error');
+      }
+      const { error } = await sb.auth.signUp({
+        email: v('rg-email'),
+        password: $('rg-pass').value,
+        options: {
+          emailRedirectTo: location.origin + location.pathname,  // volver AQUÍ tras confirmar
+          data: {
+            nombres: v('rg-nombres'), apellidos: v('rg-apellidos'),
+            ciudad: v('rg-ciudad'), pais: v('rg-pais'),
+            ocupacion: v('rg-ocupacion'), edad: v('rg-edad'),
+            telefono: v('rg-telefono')
+          }
+        }
+      });
+      if (error) return aviso('msg-registro', 'Error: ' + error.message, 'error');
+      aviso('msg-registro',
+        'Cuenta creada ✔. Si te llega un correo de confirmación, ábrelo: ' +
+        'te traerá de vuelta a esta página con la sesión iniciada.', 'ok');
+    }
+
+    async function entrar() {
+      const { error } = await sb.auth.signInWithPassword({
+        email: v('lg-email'), password: $('lg-pass').value
+      });
+      if (error) aviso('msg-login', 'Error: ' + error.message, 'error');
+    }
+
+    async function salir() { await sb.auth.signOut(); }
+
+    // ---------- Cargar la app tras iniciar sesión ----------
+    async function iniciarApp(sesion) {
+      usuario = sesion.user;
+      const { data: perfil } = await sb.from('perfiles')
+        .select('nombres, apellidos').eq('usuario_id', usuario.id).single();
+      $('quien').textContent = perfil
+        ? '👋 ' + perfil.nombres + ' ' + (perfil.apellidos ?? '') : usuario.email;
+      $('barra-usuario').classList.remove('oculto');
+      $('vista-auth').classList.add('oculto');
+      $('vista-curso').classList.remove('oculto');
+      await cargarTodo();
+    }
+
+    async function cargarTodo() {
+      // 1) contenido del curso
+      const [cur, niv, sub, act] = await Promise.all([
+        sb.from('cursos').select('*').eq('activo', true),
+        sb.from('niveles').select('*').order('orden'),
+        sb.from('subtemas').select('*').order('orden'),
+        sb.from('actividades').select('id, subtema_id, orden, titulo, url').eq('activa', true).order('orden'),
+      ]);
+      // 2) mi avance (la seguridad RLS solo me deja ver lo mío)
+      const [tok, pro] = await Promise.all([
+        sb.from('tokens').select('actividad_id, codigo, estado, expira_en'),
+        sb.from('progreso').select('*'),
+      ]);
+      misTokens = tok.data ?? [];
+      miProgreso = pro.data ?? [];
+
+      arbol = (cur.data ?? []).map(c => ({
+        ...c,
+        niveles: (niv.data ?? []).filter(n => n.curso_id === c.id).map(n => ({
+          ...n,
+          subtemas: (sub.data ?? []).filter(s => s.nivel_id === n.id).map(s => ({
+            ...s,
+            actividades: (act.data ?? []).filter(a => a.subtema_id === s.id)
+          }))
+        }))
+      }));
+      pintarCurso();
+    }
+
+    // ---------- Reglas de candados (el servidor las re-verifica siempre) ----------
+    const tokenDe = (actId) => misTokens.find(t =>
+      t.actividad_id === actId && (t.estado === 'emitido' || t.estado === 'usado'));
+    const tokenVigente = (actId) => misTokens.find(t =>
+      t.actividad_id === actId && t.estado === 'emitido' &&
+      new Date(t.expira_en) > new Date());
+
+    function actividadCompletada(a) { return !!tokenDe(a.id); }
+    function actividadDisponible(sub, a) {
+      if (a.orden === 1) return true;
+      const previa = sub.actividades.find(x => x.orden === a.orden - 1);
+      return previa ? actividadCompletada(previa) : true;
+    }
+    function subtemaAprobado(s) {
+      const p = miProgreso.find(p => p.referencia === 'subtema' &&
+        p.referencia_id === s.id);
+      return p && (p.estado === 'en_curso' || p.estado === 'completada');
+    }
+    function nivelDisponible(cursoNiveles, n) {
+      if (n.orden === 1) return true;
+      const previo = cursoNiveles.find(x => x.orden === n.orden - 1);
+      if (!previo) return true;
+      const p = miProgreso.find(p => p.referencia === 'nivel' &&
+        p.referencia_id === previo.id);
+      return p && p.estado === 'completada';
+    }
+
+    // ---------- Dibujar el árbol del curso ----------
+    function pintarCurso() {
+      const cont = $('contenido-curso');
+      cont.innerHTML = '';
+      for (const c of arbol) {
+        const h2 = document.createElement('h2');
+        h2.className = 'curso-h2';
+        h2.textContent = c.titulo;
+        cont.appendChild(h2);
+
+        for (const n of c.niveles) {
+          const abierto = nivelDisponible(c.niveles, n);
+          const divN = document.createElement('div');
+          divN.className = 'nivel' + (abierto ? '' : ' bloqueado');
+          divN.innerHTML = '<h3>' + (abierto ? '📖 ' : '🔒 ') + n.titulo +
+            (abierto ? '' : ' — se abre al aprobar el nivel anterior') + '</h3>';
+
+          if (abierto) {
+            for (const s of n.subtemas) divN.appendChild(pintarSubtema(s));
+          }
+          cont.appendChild(divN);
+        }
+      }
+    }
+
+    function pintarSubtema(s) {
+      const div = document.createElement('div');
+      div.className = 'subtema';
+      div.innerHTML = '<h4>' + s.titulo + '</h4>';
+
+      for (const a of s.actividades) {
+        const completada = actividadCompletada(a);
+        const disponible = actividadDisponible(s, a);
+        const vigente = tokenVigente(a.id);
+
+        const fila = document.createElement('div');
+        fila.className = 'fila-act';
+        const icono = completada ? '✅' : (disponible ? '▶️' : '🔒');
+        fila.innerHTML = '<span class="estado-act">' + icono + '</span>' +
+          '<span>' + a.titulo + '</span>';
+
+        const btn = document.createElement('button');
+        btn.textContent = completada ? 'Jugar otra vez' : 'Jugar';
+        btn.disabled = !disponible;
+        btn.onclick = () => abrirJuego(a);
+        fila.appendChild(btn);
+
+        if (vigente) {
+          const spanCod = document.createElement('span');
+          spanCod.innerHTML = '<span class="cod">' + vigente.codigo + '</span> ' +
+            '<span class="vence">vence ' +
+            new Date(vigente.expira_en).toLocaleString() + '</span>';
+          fila.appendChild(spanCod);
+        }
+        div.appendChild(fila);
+      }
+
+      // Zona de clave compuesta del subtema
+      const zc = document.createElement('div');
+      zc.className = 'zona-clave';
+      if (subtemaAprobado(s)) {
+        zc.innerHTML = '<div class="aviso ok">🔓 Clave validada: la evaluación de ' +
+          'este subtema está desbloqueada (disponible en la Fase 3).</div>';
+      } else {
+        zc.innerHTML =
+          '<p class="curso-p">🗝️ Une tus códigos vigentes <strong>en orden</strong> ' +
+          'y valida la clave para desbloquear la evaluación:</p>' +
+          '<input id="clave-' + s.id + '" placeholder="Códigos seguidos, sin espacios">' +
+          '<button onclick="validarClave(' + s.id + ')">Validar clave</button>' +
+          '<div id="msg-clave-' + s.id + '"></div>';
+      }
+      div.appendChild(zc);
+      return div;
+    }
+
+    // ---------- Jugar una actividad ----------
+    async function abrirJuego(act) {
+      actividadActual = act;
+      aviso('msg-juego', 'Abriendo intento…', 'info');
+      $('titulo-juego').textContent = act.titulo;
+      $('zona-juego').style.display = 'flex';
+
+      const { data, error } = await sb.functions.invoke('start-attempt',
+        { body: { actividad_id: act.id } });
+      if (error || data.error) {
+        return aviso('msg-juego', 'Error: ' + (data?.error || error.message), 'error');
+      }
+      attemptId = data.attempt_id;
+
+      const marco = $('marco');
+      marco.src = act.url;
+      marco.onload = async () => {
+        const { data: fila } = await sb.from('actividades')
+          .select('config').eq('id', act.id).single();
+        marco.contentWindow.postMessage({ tipo: 'init', config: fila?.config ?? {} }, '*');
+      };
+      aviso('msg-juego', 'Intento ' + data.intento + ' en curso. ¡Éxitos!', 'info');
+    }
+
+    function cerrarJuego() {
+      $('zona-juego').style.display = 'none';
+      $('marco').src = 'about:blank';
+      attemptId = null;
+    }
+
+    // El juego reporta su resultado → pedir el código al servidor
+    window.addEventListener('message', async (event) => {
+      const m = event.data;
+      if (!m || m.tipo !== 'resultado' || !attemptId) return;
+
+      aviso('msg-juego', 'Verificando resultado…', 'info');
+      const { data, error } = await sb.functions.invoke('issue-token', {
+        body: {
+          attempt_id: attemptId, exito: m.exito, puntaje: m.puntaje,
+          tiempo_seg: m.tiempoSeg, errores: m.metricas?.errores, metricas: m.metricas
+        }
+      });
+      attemptId = null;
+      if (error || data.error) {
+        return aviso('msg-juego', 'Error: ' + (data?.error || error.message), 'error');
+      }
+      if (data.codigo) {
+        aviso('msg-juego', '🎉 ¡Ganaste! Tu código: <span class="cod">' + data.codigo +
+          '</span> (vence ' + new Date(data.expira_en).toLocaleString() +
+          '). También quedará visible en tu lista.', 'ok');
+      } else {
+        aviso('msg-juego', 'Esta vez no: sin código. ¡Vuelve a intentarlo!', 'error');
+      }
+      await recargarAvance();
+    });
+
+    // ---------- Clave compuesta ----------
+    async function validarClave(subtemaId) {
+      const clave = v('clave-' + subtemaId);
+      if (!clave) return aviso('msg-clave-' + subtemaId, 'Escribe la clave', 'error');
+      const { data, error } = await sb.functions.invoke('compose-key',
+        { body: { subtema_id: subtemaId, clave } });
+      if (error || data.error) {
+        return aviso('msg-clave-' + subtemaId,
+          'Error: ' + (data?.error || error.message), 'error');
+      }
+      if (data.valido) {
+        await recargarAvance();
+      } else {
+        aviso('msg-clave-' + subtemaId, '❌ ' + data.mensaje, 'error');
+      }
+    }
+
+    async function recargarAvance() {
+      const [tok, pro] = await Promise.all([
+        sb.from('tokens').select('actividad_id, codigo, estado, expira_en'),
+        sb.from('progreso').select('*'),
+      ]);
+      misTokens = tok.data ?? [];
+      miProgreso = pro.data ?? [];
+      pintarCurso();
+    }
+  </script>
+  <script src="https://ricardoquiroz.github.io/iagen/investigacion.js"></script>
+</body>
+
+</html>
