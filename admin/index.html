@@ -269,13 +269,14 @@
           sb.from('intentos_eval').select('*').order('fecha'),
           sb.from('codigos_ingresados').select('*').order('fecha', { ascending: false }),
         ]);
+      const pIA = await sb.from('perfil_llm').select('*');
       D = {
         estudiantes: (perf.data ?? []).filter(p => p.rol === 'estudiante'),
         actividades: act.data ?? [], subtemas: sub.data ?? [],
         niveles: niv.data ?? [], evaluaciones: ev.data ?? [],
         tokens: tok.data ?? [], progreso: pro.data ?? [],
         desempeno: des.data ?? [], intentos: inte.data ?? [],
-        codigos: cods.data ?? [],
+        codigos: cods.data ?? [], perfilesIA: pIA.data ?? [],
       };
     }
 
@@ -322,6 +323,33 @@
         (p.ciudad ? ' · ' + esc(p.ciudad) : '') + (p.pais ? ', ' + esc(p.pais) : '') +
         (p.ocupacion ? ' · ' + esc(p.ocupacion) : '') +
         ' · registrado: ' + fecha(p.creado_en) + '</p>';
+
+      // --- Perfil de aprendizaje (IA) ---
+      html += '<div class="tarjeta"><h3>🤖 Perfil de aprendizaje (IA)</h3>';
+      const pia = D.perfilesIA.find(x => x.usuario_id === uid);
+      if (pia && pia.resumen) {
+        const r = pia.resumen;
+        const riesgo = r.nivel_riesgo === 'alto' ? 'mal'
+          : (r.nivel_riesgo === 'medio' ? 'medio' : 'ok');
+        html += '<p class="curso-p">' + esc(r.resumen ?? '') + '</p>';
+        if (r.nivel_riesgo) {
+          html += '<p class="curso-p">Riesgo de abandono/reprobación: ' +
+            '<span class="pill ' + riesgo + '">' + esc(r.nivel_riesgo) + '</span></p>';
+        }
+        const lista = (titulo, arr) => (Array.isArray(arr) && arr.length)
+          ? '<p class="curso-p"><strong>' + titulo + ':</strong> ' +
+            arr.map(esc).join(' · ') + '</p>' : '';
+        html += lista('Fortalezas', r.fortalezas) +
+          lista('Dificultades', r.dificultades) +
+          lista('Recomendaciones', r.recomendaciones);
+        html += '<p class="curso-p"><em>Actualizado: ' +
+          fecha(pia.actualizado_en) + '</em></p>';
+      } else {
+        html += '<div class="aviso info">Aún no se ha generado el perfil IA ' +
+          'de este estudiante.</div>';
+      }
+      html += '<button onclick="actualizarPerfilIA(\'' + uid + '\')">' +
+        '🔄 Actualizar perfil IA</button><div id="msg-ia"></div></div>';
 
       // --- Desempeño en actividades ---
       html += '<div class="tarjeta"><h3>🎮 Desempeño en actividades</h3>';
@@ -418,6 +446,18 @@
     function volverResumen() {
       $('vista-detalle').classList.add('oculto');
       $('vista-resumen').classList.remove('oculto');
+    }
+
+    // ---------- Actualizar perfil IA ----------
+    async function actualizarPerfilIA(uid) {
+      aviso('msg-ia', 'Analizando desempeño con Gemini…', 'info');
+      const { data, error } = await sb.functions.invoke('update-profile',
+        { body: { usuario_id: uid } });
+      if (error || data.error) {
+        return aviso('msg-ia', 'Error: ' + (data?.error || error.message), 'error');
+      }
+      await cargarDatos();
+      verDetalle(uid);
     }
 
     // ---------- Habilitar nuevo intento ----------
