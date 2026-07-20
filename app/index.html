@@ -419,6 +419,19 @@
     const $ = (id) => document.getElementById(id);
     const v = (id) => $(id).value.trim();
 
+    // Extrae el mensaje de error REAL que envió el servidor
+    // (si no, supabase-js solo dice "non-2xx status code")
+    async function errorDe(data, error) {
+      if (data && data.error) return data.error;
+      try {
+        if (error && error.context) {
+          const j = await error.context.json();
+          if (j && j.error) return j.error;
+        }
+      } catch { }
+      return error ? error.message : 'Error desconocido';
+    }
+
     // ---------- Arranque ----------
     window.addEventListener('load', async () => {
       if (SUPABASE_URL.includes('TU-PROYECTO')) {
@@ -679,7 +692,7 @@
       const { data, error } = await sb.functions.invoke('get-eval',
         { body: { evaluacion_id: ev.id } });
       if (error || data.error) {
-        return aviso('msg-eval', 'Error: ' + (data?.error || error.message), 'error');
+        return aviso('msg-eval', 'Error: ' + (await errorDe(data, error)), 'error');
       }
 
       const cuerpo = $('cuerpo-eval');
@@ -711,7 +724,7 @@
       const { data, error } = await sb.functions.invoke('eval-attempt',
         { body: { evaluacion_id: evalActual.id, respuestas } });
       if (error || data.error) {
-        return aviso('msg-eval', 'Error: ' + (data?.error || error.message), 'error');
+        return aviso('msg-eval', 'Error: ' + (await errorDe(data, error)), 'error');
       }
       $('cuerpo-eval').innerHTML = '';
       if (data.aprobado) {
@@ -744,7 +757,7 @@
       const { data, error } = await sb.functions.invoke('start-attempt',
         { body: { actividad_id: act.id } });
       if (error || data.error) {
-        return aviso('msg-juego', 'Error: ' + (data?.error || error.message), 'error');
+        return aviso('msg-juego', 'Error: ' + (await errorDe(data, error)), 'error');
       }
       attemptId = data.attempt_id;
 
@@ -778,7 +791,7 @@
       });
       attemptId = null;
       if (error || data.error) {
-        return aviso('msg-juego', 'Error: ' + (data?.error || error.message), 'error');
+        return aviso('msg-juego', 'Error: ' + (await errorDe(data, error)), 'error');
       }
       if (data.codigo) {
         aviso('msg-juego', '🎉 ¡Ganaste! Tu código: <span class="cod">' + data.codigo +
@@ -798,7 +811,7 @@
         { body: { subtema_id: subtemaId, clave } });
       if (error || data.error) {
         return aviso('msg-clave-' + subtemaId,
-          'Error: ' + (data?.error || error.message), 'error');
+          'Error: ' + (await errorDe(data, error)), 'error');
       }
       if (data.valido) {
         await recargarAvance();
@@ -841,7 +854,7 @@
       const { data, error } = await sb.functions.invoke('tutor-chat',
         { body: { mensaje: texto, historial: chatHistorial } });
       if (error || data.error) {
-        espera.textContent = '⚠️ ' + (data?.error || error.message);
+        espera.textContent = '⚠️ ' + (await errorDe(data, error));
         return;
       }
       espera.textContent = data.respuesta;
