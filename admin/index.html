@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>miLMS — Panel del profesor</title>
+  <link rel="stylesheet" href="https://ricardoquiroz.github.io/iagen/investigacion.css">
+  <!--
+    miLMS — FASE 4: Panel del profesor / administrador
+    Solo entra quien tenga rol 'profesor' o 'admin' en la tabla perfiles.
+    Aunque el archivo es público, la seguridad RLS impide que un
+    estudiante (o un desconocido) vea datos de otros: sin rol de staff,
+    la base de datos simplemente no le entrega nada.
+
+    ⚙️ ANTES DE SUBIR: edita las DOS líneas de configuración al inicio
+    del bloque de código (URL y clave anon, las mismas del portal).
+  -->
+  <style>
+    .barra {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .barra .quien {
+      color: #0F3460;
+      font-weight: bold;
+    }
+
+    .tarjeta {
+      background: #fff;
+      border: 1px solid #C9A84C;
+      border-radius: 10px;
+      padding: 16px 20px;
+      margin: 14px 0;
+    }
+
+    .tarjeta h3 {
+      color: #0F3460;
+      margin-top: 0;
+    }
+
+    input {
+      padding: 7px 10px;
+      margin: 4px 6px 4px 0;
+      border: 1px solid #0F3460;
+      border-radius: 6px;
+      min-width: 200px;
+      font-size: 1em;
+    }
+
+    button {
+      padding: 8px 18px;
+      margin: 4px 4px 4px 0;
+      cursor: pointer;
+      background: #0F3460;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 1em;
+    }
+
+    button.secundario {
+      background: #fff;
+      color: #0F3460;
+      border: 1px solid #0F3460;
+    }
+
+    button.peligro {
+      background: #E94560;
+    }
+
+    .aviso {
+      padding: 8px 12px;
+      border-radius: 6px;
+      margin: 8px 0;
+    }
+
+    .aviso.ok {
+      background: #E8F5E9;
+      color: #2E7D32;
+    }
+
+    .aviso.error {
+      background: #fdecef;
+      color: #E94560;
+    }
+
+    .aviso.info {
+      background: #E8F4FD;
+      color: #1565C0;
+    }
+
+    table.datos {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 8px 0;
+    }
+
+    table.datos th {
+      background: #0F3460;
+      color: #fff;
+      padding: 6px 10px;
+      text-align: left;
+      font-size: .92em;
+    }
+
+    table.datos td {
+      border-bottom: 1px solid #ddd;
+      padding: 6px 10px;
+      font-size: .95em;
+    }
+
+    table.datos tr:nth-child(even) td {
+      background: #f7f9fc;
+    }
+
+    .cod {
+      font-family: monospace;
+      letter-spacing: 1px;
+      color: #6A1B9A;
+      font-weight: bold;
+    }
+
+    .pill {
+      border-radius: 12px;
+      padding: 2px 10px;
+      font-size: .85em;
+      display: inline-block;
+    }
+
+    .pill.ok {
+      background: #E8F5E9;
+      color: #2E7D32;
+    }
+
+    .pill.mal {
+      background: #fdecef;
+      color: #E94560;
+    }
+
+    .pill.medio {
+      background: #FFF8E1;
+      color: #F57F17;
+    }
+
+    .oculto {
+      display: none !important;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="curso-wrapper">
+
+    <div class="barra">
+      <h1 class="curso-h1">🎓 miLMS — Panel del profesor</h1>
+      <div id="barra-usuario" class="oculto">
+        <span class="quien" id="quien"></span>
+        <button class="secundario" onclick="salir()">Salir</button>
+      </div>
+    </div>
+    <hr class="divider">
+    <div id="msg-global"></div>
+
+    <!-- ========== VISTA: ACCESO ========== -->
+    <div id="vista-auth">
+      <div class="tarjeta">
+        <h3>Acceso solo para profesores</h3>
+        <input id="lg-email" type="email" placeholder="Email">
+        <input id="lg-pass" type="password" placeholder="Contraseña">
+        <button onclick="entrar()">Entrar</button>
+        <div id="msg-login"></div>
+      </div>
+    </div>
+
+    <!-- ========== VISTA: RESUMEN ========== -->
+    <div id="vista-resumen" class="oculto">
+      <div class="tarjeta">
+        <h3>👩‍🎓 Estudiantes</h3>
+        <div id="tabla-resumen"></div>
+      </div>
+    </div>
+
+    <!-- ========== VISTA: DETALLE ========== -->
+    <div id="vista-detalle" class="oculto">
+      <button class="secundario" onclick="volverResumen()">← Volver a la lista</button>
+      <div id="contenido-detalle"></div>
+    </div>
+
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+    // ══════════════════════════════════════════════════════
+    //  ⚙️ CONFIGURACIÓN — edita SOLO estas dos líneas
+    // ══════════════════════════════════════════════════════
+    const SUPABASE_URL = 'https://iyhezjbcwqsonzorokzx.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_EvuPiF0KQ11XA7gEq0D40A_fOGTKhJi';
+    // ══════════════════════════════════════════════════════
+
+    let sb = null, usuario = null;
+    let D = {};   // todos los datos cargados (estudiantes, tokens, etc.)
+
+    function aviso(id, texto, clase) {
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = texto
+        ? '<div class="aviso ' + clase + '">' + texto + '</div>' : '';
+    }
+    const $ = (id) => document.getElementById(id);
+    const esc = (t) => String(t ?? '').replace(/</g, '&lt;');
+    const fecha = (f) => f ? new Date(f).toLocaleString() : '—';
+
+    // ---------- Arranque ----------
+    window.addEventListener('load', async () => {
+      if (SUPABASE_URL.includes('TU-PROYECTO')) {
+        return aviso('msg-global',
+          '⚙️ Falta configurar: completa la URL y la clave anon al inicio ' +
+          'del código de este archivo.', 'error');
+      }
+      sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      const { data: { session } } = await sb.auth.getSession();
+      if (session) await iniciarPanel(session);
+    });
+
+    async function entrar() {
+      const { data, error } = await sb.auth.signInWithPassword({
+        email: $('lg-email').value.trim(), password: $('lg-pass').value
+      });
+      if (error) return aviso('msg-login', 'Error: ' + error.message, 'error');
+      await iniciarPanel(data.session);
+    }
+
+    async function salir() { await sb.auth.signOut(); location.reload(); }
+
+    async function iniciarPanel(sesion) {
+      usuario = sesion.user;
+      // ¿Es profesor o admin? (RLS además lo re-verifica en cada consulta)
+      const { data: yo } = await sb.from('perfiles')
+        .select('nombres, rol').eq('usuario_id', usuario.id).single();
+      if (!yo || (yo.rol !== 'admin' && yo.rol !== 'profesor')) {
+        await sb.auth.signOut();
+        return aviso('msg-login',
+          'Esta cuenta no tiene permisos de profesor.', 'error');
+      }
+      $('quien').textContent = '👋 ' + yo.nombres + ' (' + yo.rol + ')';
+      $('barra-usuario').classList.remove('oculto');
+      $('vista-auth').classList.add('oculto');
+      await cargarDatos();
+      pintarResumen();
+      $('vista-resumen').classList.remove('oculto');
+    }
+
+    // ---------- Carga de datos (RLS: el staff ve todo) ----------
+    async function cargarDatos() {
+      const [perf, act, sub, niv, ev, tok, pro, des, inte, cods] =
+        await Promise.all([
+          sb.from('perfiles').select('*').order('creado_en'),
+          sb.from('actividades').select('id, subtema_id, orden, titulo'),
+          sb.from('subtemas').select('id, nivel_id, orden, titulo'),
+          sb.from('niveles').select('id, curso_id, orden, titulo'),
+          sb.from('evaluaciones').select('id, ambito, subtema_id, nivel_id, titulo, nota_minima'),
+          sb.from('tokens').select('*'),
+          sb.from('progreso').select('*'),
+          sb.from('desempeno').select('*').order('iniciado_en', { ascending: false }),
+          sb.from('intentos_eval').select('*').order('fecha'),
+          sb.from('codigos_ingresados').select('*').order('fecha', { ascending: false }),
+        ]);
+      D = {
+        estudiantes: (perf.data ?? []).filter(p => p.rol === 'estudiante'),
+        actividades: act.data ?? [], subtemas: sub.data ?? [],
+        niveles: niv.data ?? [], evaluaciones: ev.data ?? [],
+        tokens: tok.data ?? [], progreso: pro.data ?? [],
+        desempeno: des.data ?? [], intentos: inte.data ?? [],
+        codigos: cods.data ?? [],
+      };
+    }
+
+    const de = (lista, uid) => lista.filter(x => x.usuario_id === uid);
+    const actTitulo = (id) => D.actividades.find(a => a.id === id)?.titulo ?? ('Actividad ' + id);
+    const evTitulo = (id) => D.evaluaciones.find(e => e.id === id)?.titulo ?? ('Evaluación ' + id);
+
+    // ---------- Vista resumen ----------
+    function pintarResumen() {
+      const totalActs = D.actividades.length;
+      const totalEvs = D.evaluaciones.length;
+      let html = '<table class="datos"><tr><th>Estudiante</th><th>Email</th>' +
+        '<th>Actividades</th><th>Evaluaciones</th><th>Última actividad</th><th></th></tr>';
+
+      for (const p of D.estudiantes) {
+        const uid = p.usuario_id;
+        const actsOk = de(D.progreso, uid).filter(x =>
+          x.referencia === 'actividad' && x.estado === 'completada').length;
+        const evsOk = new Set(de(D.intentos, uid)
+          .filter(i => i.resultado === 'aprobado').map(i => i.evaluacion_id)).size;
+        const ultima = de(D.desempeno, uid)[0]?.iniciado_en;
+
+        html += '<tr><td>' + esc(p.nombres) + ' ' + esc(p.apellidos) + '</td>' +
+          '<td>' + esc(p.email) + '</td>' +
+          '<td>' + actsOk + ' / ' + totalActs + '</td>' +
+          '<td>' + evsOk + ' / ' + totalEvs + '</td>' +
+          '<td>' + fecha(ultima) + '</td>' +
+          '<td><button onclick="verDetalle(\'' + uid + '\')">Ver detalle</button></td></tr>';
+      }
+      html += '</table>';
+      if (D.estudiantes.length === 0) {
+        html = '<div class="aviso info">Aún no hay estudiantes registrados.</div>';
+      }
+      $('tabla-resumen').innerHTML = html;
+    }
+
+    // ---------- Vista detalle ----------
+    function verDetalle(uid) {
+      const p = D.estudiantes.find(x => x.usuario_id === uid);
+      if (!p) return;
+      const c = $('contenido-detalle');
+      let html = '<h2 class="curso-h2">' + esc(p.nombres) + ' ' + esc(p.apellidos) + '</h2>' +
+        '<p class="curso-p">' + esc(p.email) +
+        (p.ciudad ? ' · ' + esc(p.ciudad) : '') + (p.pais ? ', ' + esc(p.pais) : '') +
+        (p.ocupacion ? ' · ' + esc(p.ocupacion) : '') +
+        ' · registrado: ' + fecha(p.creado_en) + '</p>';
+
+      // --- Desempeño en actividades ---
+      html += '<div class="tarjeta"><h3>🎮 Desempeño en actividades</h3>';
+      const des = de(D.desempeno, uid);
+      if (des.length === 0) html += '<div class="aviso info">Sin partidas aún.</div>';
+      else {
+        html += '<table class="datos"><tr><th>Actividad</th><th>Intento</th>' +
+          '<th>Estado</th><th>Puntaje</th><th>Tiempo</th><th>Fecha</th><th>Métricas</th></tr>';
+        for (const d of des) {
+          const pill = d.estado === 'completado' ? 'ok'
+            : (d.estado === 'abierto' ? 'medio' : 'mal');
+          html += '<tr><td>' + esc(actTitulo(d.actividad_id)) + '</td>' +
+            '<td>' + d.intento + '</td>' +
+            '<td><span class="pill ' + pill + '">' + d.estado + '</span></td>' +
+            '<td>' + (d.puntaje ?? '—') + '</td>' +
+            '<td>' + (d.tiempo_seg != null ? d.tiempo_seg + ' s' : '—') + '</td>' +
+            '<td>' + fecha(d.iniciado_en) + '</td>' +
+            '<td>' + esc(d.metricas ? JSON.stringify(d.metricas) : '—') + '</td></tr>';
+        }
+        html += '</table>';
+      }
+      html += '</div>';
+
+      // --- Códigos (tokens) ---
+      html += '<div class="tarjeta"><h3>🔑 Códigos emitidos</h3>';
+      const toks = de(D.tokens, uid);
+      if (toks.length === 0) html += '<div class="aviso info">Sin códigos aún.</div>';
+      else {
+        html += '<table class="datos"><tr><th>Actividad</th><th>Código</th>' +
+          '<th>Estado</th><th>Emitido</th><th>Vence</th></tr>';
+        for (const t of toks) {
+          const pill = t.estado === 'usado' ? 'ok'
+            : (t.estado === 'emitido' ? 'medio' : 'mal');
+          html += '<tr><td>' + esc(actTitulo(t.actividad_id)) + '</td>' +
+            '<td class="cod">' + esc(t.codigo) + '</td>' +
+            '<td><span class="pill ' + pill + '">' + t.estado + '</span></td>' +
+            '<td>' + fecha(t.emitido_en) + '</td>' +
+            '<td>' + fecha(t.expira_en) + '</td></tr>';
+        }
+        html += '</table>';
+      }
+      html += '</div>';
+
+      // --- Calificaciones (evaluaciones) ---
+      html += '<div class="tarjeta"><h3>📝 Evaluaciones y calificaciones</h3>';
+      let hayEvals = false;
+      html += '<table class="datos"><tr><th>Evaluación</th><th>Intentos</th>' +
+        '<th>Puntajes</th><th>Estado</th><th></th></tr>';
+      for (const ev of D.evaluaciones) {
+        const ints = de(D.intentos, uid).filter(i => i.evaluacion_id === ev.id);
+        if (ints.length === 0) continue;
+        hayEvals = true;
+        const aprobada = ints.some(i => i.resultado === 'aprobado');
+        const bloqueada = !aprobada && ints.length >= 3;
+        const estado = aprobada
+          ? '<span class="pill ok">aprobada</span>'
+          : (bloqueada ? '<span class="pill mal">sin intentos</span>'
+            : '<span class="pill medio">' + ints.length + ' de 3 usados</span>');
+        const puntajes = ints.map(i => i.puntaje ?? '—').join(' · ');
+        const botonReset = (bloqueada
+          ? '<button class="peligro" onclick="darNuevoIntento(\'' + uid + '\',' +
+          ev.id + ')">Habilitar nuevo intento</button>' : '');
+        html += '<tr><td>' + esc(ev.titulo) + '</td>' +
+          '<td>' + ints.length + '</td><td>' + puntajes + '</td>' +
+          '<td>' + estado + '</td><td>' + botonReset + '</td></tr>';
+      }
+      html += '</table>';
+      if (!hayEvals) html += '<div class="aviso info">Sin intentos de evaluación aún.</div>';
+      html += '<div id="msg-reset"></div></div>';
+
+      // --- Auditoría de códigos ingresados ---
+      html += '<div class="tarjeta"><h3>🕵️ Auditoría: códigos ingresados</h3>';
+      const cods = de(D.codigos, uid);
+      if (cods.length === 0) html += '<div class="aviso info">Sin registros.</div>';
+      else {
+        html += '<table class="datos"><tr><th>Fecha</th><th>Contexto</th>' +
+          '<th>Lo que escribió</th><th>¿Válido?</th></tr>';
+        for (const cd of cods) {
+          html += '<tr><td>' + fecha(cd.fecha) + '</td>' +
+            '<td>' + esc(cd.contexto) + '</td>' +
+            '<td class="cod">' + esc(cd.codigo_ingresado) + '</td>' +
+            '<td>' + (cd.valido ? '<span class="pill ok">sí</span>'
+              : '<span class="pill mal">no</span>') + '</td></tr>';
+        }
+        html += '</table>';
+      }
+      html += '</div>';
+
+      c.innerHTML = html;
+      $('vista-resumen').classList.add('oculto');
+      $('vista-detalle').classList.remove('oculto');
+    }
+
+    function volverResumen() {
+      $('vista-detalle').classList.add('oculto');
+      $('vista-resumen').classList.remove('oculto');
+    }
+
+    // ---------- Habilitar nuevo intento ----------
+    async function darNuevoIntento(uid, evaluacionId) {
+      if (!confirm('¿Borrar los intentos de esta evaluación para que el ' +
+        'estudiante pueda presentarla de nuevo?')) return;
+      const { error } = await sb.from('intentos_eval').delete()
+        .eq('usuario_id', uid).eq('evaluacion_id', evaluacionId);
+      if (error) return aviso('msg-reset', 'Error: ' + error.message, 'error');
+      await cargarDatos();
+      verDetalle(uid);
+    }
+  </script>
+  <script src="https://ricardoquiroz.github.io/iagen/investigacion.js"></script>
+</body>
+
+</html>
