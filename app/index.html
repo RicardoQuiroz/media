@@ -188,6 +188,45 @@
     .oculto {
       display: none !important;
     }
+
+    #zona-eval {
+      position: fixed;
+      inset: 0;
+      background: rgba(22, 33, 62, .85);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 60;
+      padding: 20px;
+    }
+
+    #zona-eval .caja-eval {
+      background: #fff;
+      border-radius: 12px;
+      padding: 18px 22px;
+      width: min(680px, 96vw);
+      max-height: 85vh;
+      overflow: auto;
+    }
+
+    .pregunta-eval {
+      border: 1px solid #C9A84C;
+      border-radius: 8px;
+      padding: 10px 14px;
+      margin: 10px 0;
+    }
+
+    .pregunta-eval p {
+      font-weight: bold;
+      color: #16213E;
+      margin: 2px 0 8px;
+    }
+
+    .pregunta-eval label {
+      display: block;
+      margin: 4px 0;
+      cursor: pointer;
+    }
   </style>
 </head>
 
@@ -254,6 +293,18 @@
     </div>
   </div>
 
+  <!-- Capa de la evaluación (se abre encima de todo) -->
+  <div id="zona-eval">
+    <div class="caja-eval">
+      <div class="barra">
+        <strong id="titulo-eval" style="color:#0F3460"></strong>
+        <button class="secundario" onclick="cerrarEvaluacion()">✕ Cerrar</button>
+      </div>
+      <div id="cuerpo-eval"></div>
+      <div id="msg-eval"></div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
     // ══════════════════════════════════════════════════════
@@ -268,7 +319,9 @@
     let arbol = [];                        // cursos → niveles → subtemas → actividades
     let misTokens = [];                    // tokens propios (RLS: solo los míos)
     let miProgreso = [];                   // avance propio
-    let attemptId = null, actividadActual = null;
+    let evaluaciones = [];                 // evaluaciones del curso
+    let misIntentos = [];                  // mis intentos de evaluación
+    let attemptId = null, actividadActual = null, evalActual = null;
 
     function aviso(id, texto, clase) {
       const el = document.getElementById(id);
@@ -351,13 +404,18 @@
         sb.from('subtemas').select('*').order('orden'),
         sb.from('actividades').select('id, subtema_id, orden, titulo, url').eq('activa', true).order('orden'),
       ]);
+      const ev = await sb.from('evaluaciones')
+        .select('id, ambito, subtema_id, nivel_id, titulo, nota_minima');
+      evaluaciones = ev.data ?? [];
       // 2) mi avance (la seguridad RLS solo me deja ver lo mío)
-      const [tok, pro] = await Promise.all([
+      const [tok, pro, inte] = await Promise.all([
         sb.from('tokens').select('actividad_id, codigo, estado, expira_en'),
         sb.from('progreso').select('*'),
+        sb.from('intentos_eval').select('evaluacion_id, numero, resultado, puntaje'),
       ]);
       misTokens = tok.data ?? [];
       miProgreso = pro.data ?? [];
+      misIntentos = inte.data ?? [];
 
       arbol = (cur.data ?? []).map(c => ({
         ...c,
@@ -390,6 +448,17 @@
         p.referencia_id === s.id);
       return p && (p.estado === 'en_curso' || p.estado === 'completada');
     }
+    function subtemaCompletado(s) {
+      const p = miProgreso.find(p => p.referencia === 'subtema' &&
+        p.referencia_id === s.id);
+      return p && p.estado === 'completada';
+    }
+    const evalDe = (ambito, refId) => evaluaciones.find(e => e.ambito === ambito &&
+      (ambito === 'subtema' ? e.subtema_id === refId : e.nivel_id === refId));
+    const intentosDe = (evalId) => misIntentos.filter(i => i.evaluacion_id === evalId);
+    const evalAprobada = (evalId) => intentosDe(evalId).some(i => i.resultado === 'aprobado');
+    const mejorPuntaje = (evalId) =>
+      Math.max(0, ...intentosDe(evalId).map(i => Number(i.puntaje ?? 0)));
     function nivelDisponible(cursoNiveles, n) {
       if (n.orden === 1) return true;
       const previo = cursoNiveles.find(x => x.orden === n.orden - 1);
@@ -418,6 +487,19 @@
 
           if (abierto) {
             for (const s of n.subtemas) divN.appendChild(pintarSubtema(s));
+
+            // Evaluación del nivel: se abre al completar todos sus subtemas
+            const ze = document.createElement('div');
+            ze.className = 'zona-clave';
+            const todosListos = n.subtemas.length > 0 &&
+              n.subtemas.every(s => subtemaCompletado(s));
+            if (todosListos) {
+              ze.appendChild(zonaEvaluacion(evalDe('nivel', n.id)));
+            } else {
+              ze.innerHTML = '<p class="curso-p">🎯 La evaluación del nivel se ' +
+                'abre al aprobar las evaluaciones de todos sus subtemas.</p>';
+            }
+            divN.appendChild(ze);
           }
           cont.appendChild(divN);
         }
@@ -460,8 +542,8 @@
       const zc = document.createElement('div');
       zc.className = 'zona-clave';
       if (subtemaAprobado(s)) {
-        zc.innerHTML = '<div class="aviso ok">🔓 Clave validada: la evaluación de ' +
-          'este subtema está desbloqueada (disponible en la Fase 3).</div>';
+        zc.innerHTML = '<div class="aviso ok">🔓 Clave validada.</div>';
+        zc.appendChild(zonaEvaluacion(evalDe('subtema', s.id)));
       } else {
         zc.innerHTML =
           '<p class="curso-p">🗝️ Une tus códigos vigentes <strong>en orden</strong> ' +
@@ -472,6 +554,93 @@
       }
       div.appendChild(zc);
       return div;
+    }
+
+    // ---------- Estado y apertura de evaluaciones ----------
+    function zonaEvaluacion(ev) {
+      const cont = document.createElement('div');
+      if (!ev) {
+        cont.innerHTML = '<div class="aviso info">Aún no hay evaluación configurada.</div>';
+        return cont;
+      }
+      const usados = intentosDe(ev.id).length;
+      if (evalAprobada(ev.id)) {
+        cont.innerHTML = '<div class="aviso ok">🏆 ' + ev.titulo +
+          ': aprobada con ' + mejorPuntaje(ev.id) + ' puntos.</div>';
+      } else if (usados >= 3) {
+        cont.innerHTML = '<div class="aviso error">⛔ ' + ev.titulo +
+          ': usaste tus 3 intentos. Repasa las actividades y habla con tu ' +
+          'profesor para habilitar un nuevo intento.</div>';
+      } else {
+        const btn = document.createElement('button');
+        btn.textContent = '📝 ' + ev.titulo + ' (intento ' + (usados + 1) + ' de 3)';
+        btn.onclick = () => abrirEvaluacion(ev);
+        cont.appendChild(btn);
+      }
+      return cont;
+    }
+
+    async function abrirEvaluacion(ev) {
+      evalActual = ev;
+      $('titulo-eval').textContent = ev.titulo;
+      $('cuerpo-eval').innerHTML = '';
+      aviso('msg-eval', 'Cargando preguntas…', 'info');
+      $('zona-eval').style.display = 'flex';
+
+      const { data, error } = await sb.functions.invoke('get-eval',
+        { body: { evaluacion_id: ev.id } });
+      if (error || data.error) {
+        return aviso('msg-eval', 'Error: ' + (data?.error || error.message), 'error');
+      }
+
+      const cuerpo = $('cuerpo-eval');
+      for (const p of data.preguntas) {
+        const dp = document.createElement('div');
+        dp.className = 'pregunta-eval';
+        dp.innerHTML = '<p>' + p.orden + '. ' + p.enunciado + '</p>' +
+          p.opciones.map((op, i) =>
+            '<label><input type="radio" name="preg-' + p.id + '" value="' + i +
+            '"> ' + op + '</label>').join('');
+        cuerpo.appendChild(dp);
+      }
+      const btn = document.createElement('button');
+      btn.textContent = 'Enviar respuestas';
+      btn.onclick = () => enviarEvaluacion(data.preguntas);
+      cuerpo.appendChild(btn);
+      aviso('msg-eval', 'Intento ' + data.intento + ' de 3. Nota mínima: ' +
+        (evalActual.nota_minima ?? 60) + '. ¡Concéntrate!', 'info');
+    }
+
+    async function enviarEvaluacion(preguntas) {
+      const respuestas = {};
+      for (const p of preguntas) {
+        const sel = document.querySelector('input[name="preg-' + p.id + '"]:checked');
+        if (!sel) return aviso('msg-eval', 'Responde todas las preguntas', 'error');
+        respuestas[p.id] = Number(sel.value);
+      }
+      aviso('msg-eval', 'Calificando…', 'info');
+      const { data, error } = await sb.functions.invoke('eval-attempt',
+        { body: { evaluacion_id: evalActual.id, respuestas } });
+      if (error || data.error) {
+        return aviso('msg-eval', 'Error: ' + (data?.error || error.message), 'error');
+      }
+      $('cuerpo-eval').innerHTML = '';
+      if (data.aprobado) {
+        aviso('msg-eval', '🏆 ¡Aprobaste con ' + data.puntaje + ' puntos! (' +
+          data.correctas + ' de ' + data.total + ' correctas)', 'ok');
+      } else {
+        aviso('msg-eval', '❌ Puntaje: ' + data.puntaje + ' — necesitas ' +
+          data.nota_minima + '. ' + (data.intentos_restantes > 0
+            ? 'Te quedan ' + data.intentos_restantes + ' intento(s).'
+            : 'Sin intentos restantes: repasa las actividades.'), 'error');
+      }
+      await recargarAvance();
+    }
+
+    function cerrarEvaluacion() {
+      $('zona-eval').style.display = 'none';
+      $('cuerpo-eval').innerHTML = '';
+      evalActual = null;
     }
 
     // ---------- Jugar una actividad ----------
@@ -548,12 +717,14 @@
     }
 
     async function recargarAvance() {
-      const [tok, pro] = await Promise.all([
+      const [tok, pro, inte] = await Promise.all([
         sb.from('tokens').select('actividad_id, codigo, estado, expira_en'),
         sb.from('progreso').select('*'),
+        sb.from('intentos_eval').select('evaluacion_id, numero, resultado, puntaje'),
       ]);
       misTokens = tok.data ?? [];
       miProgreso = pro.data ?? [];
+      misIntentos = inte.data ?? [];
       pintarCurso();
     }
   </script>
