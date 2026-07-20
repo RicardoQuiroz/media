@@ -212,6 +212,16 @@
     }
     const $ = (id) => document.getElementById(id);
     const esc = (t) => String(t ?? '').replace(/</g, '&lt;');
+    async function errorDe(data, error) {
+      if (data && data.error) return data.error;
+      try {
+        if (error && error.context) {
+          const j = await error.context.json();
+          if (j && j.error) return j.error;
+        }
+      } catch { }
+      return error ? error.message : 'Error desconocido';
+    }
     const fecha = (f) => f ? new Date(f).toLocaleString() : '—';
 
     // ---------- Arranque ----------
@@ -454,7 +464,7 @@
       const { data, error } = await sb.functions.invoke('update-profile',
         { body: { usuario_id: uid } });
       if (error || data.error) {
-        return aviso('msg-ia', 'Error: ' + (data?.error || error.message), 'error');
+        return aviso('msg-ia', 'Error: ' + (await errorDe(data, error)), 'error');
       }
       await cargarDatos();
       verDetalle(uid);
